@@ -4,6 +4,7 @@ import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Paths;
 
 public class CVFileUtil {
@@ -22,14 +23,12 @@ public class CVFileUtil {
         return !folder.exists();
     }
 
-    public static String getFileExtension(FilePart filePart) {
-        String fileName = filePart.filename();
-        String[] parts = StringUtils.split(fileName, ".");
-        assert parts != null;
-        if (parts.length > 1) {
-            return parts[parts.length - 1];
-        } else {
-            return "";
+    public static String getFileExtension(FilePart file) {
+        String fileName = file.name();
+        int lastDotIndex = fileName.lastIndexOf('.');
+        if (lastDotIndex > 0 && lastDotIndex < fileName.length() - 1) {
+            return fileName.substring(lastDotIndex + 1);
         }
+        return "";
     }
 }

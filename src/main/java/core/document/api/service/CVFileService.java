@@ -6,7 +6,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface CVFileService {
-    Mono<String> createFile(String createdBy, String parentId, String filePath, Mono<FilePart> files);
+    Mono<?> createFile(String createdBy, String parentId, String filePath, Mono<FilePart> files);
 
     Mono<?> createFolder(CVFile file);
 

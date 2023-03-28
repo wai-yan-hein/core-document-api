@@ -3,7 +3,9 @@ package core.document.api.service;
 import core.document.api.common.CVFileUtil;
 import core.document.api.common.Util1;
 import core.document.api.entity.CVFile;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
@@ -14,6 +16,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -23,14 +27,10 @@ import java.util.Objects;
 @Transactional
 @Slf4j
 public class CVFileServiceImpl implements CVFileService {
-    private final R2dbcEntityTemplate template;
-    private final SeqService seqService;
-
-    public CVFileServiceImpl(R2dbcEntityTemplate template, SeqService seqService) {
-        this.template = template;
-        this.seqService = seqService;
-    }
-
+    @Autowired
+    private SeqService seqService;
+    @Autowired
+    private R2dbcEntityTemplate template;
 
     @Override
     public Mono<CVFile> save(CVFile f) {
@@ -57,35 +57,60 @@ public class CVFileServiceImpl implements CVFileService {
         return template.select(q, CVFile.class);
     }
 
-    private Mono<Void> saveFileToDisk(FilePart filePart, Path path) {
-        return filePart.transferTo(path)
-                .doOnSuccess(result -> log.info("file saved successfully"))
-                .doOnError(throwable -> log.error(throwable.getMessage()));
+    private Mono<File> saveFileToDisk(FilePart filePart, Path path) {
+        String fileName = path.toString() + File.separator + filePart.filename();
+        File file = new File(fileName);
+        try {
+            Files.createDirectories(file.getParentFile().toPath());
+            filePart.transferTo(file).then();
+        } catch (IOException e) {
+            return Mono.error(e);
+        }
+        return Mono.just(file);
     }
 
+
     @Override
-    public Mono<String> createFile(String createdBy, String parentId, String filePath, Mono<FilePart> files) {
-        if (CVFileUtil.isEmpty(filePath)) {
-            return files.flatMap(file -> {
-                String fileName = file.filename();
-                long fileSize = file.headers().getContentLength();
-                String contentType = Objects.requireNonNull(file.headers().getContentType()).toString();
-                Path path = Paths.get(filePath);
-                CVFile c = new CVFile();
-                c.setParentId(parentId);
-                c.setFileName(fileName);
-                c.setDescription(fileName);
-                c.setFileSize(fileSize);
-                c.setFileType(CVFileUtil.FILE);
-                c.setFileContent(contentType);
-                c.setFileExtension(CVFileUtil.getFileExtension(file));
-                c.setCreatedBy(createdBy);
-                c.setCreatedDate(LocalDateTime.now());
-                c.setDeleted(false);
-                return saveFileToDisk(file, path).then(save(c)).flatMap(file1 -> Mono.just("success"));
-            });
+    public Mono<?> createFile(String createdBy, String parentId, String filePath, Mono<FilePart> files) {
+        return files
+                .flatMap(filePart -> {
+                    File file = new File(Paths.get(filePath) + File.separator + filePart.filename());
+                    try {
+                        Files.createDirectories(file.getParentFile().toPath());
+                        filePart.transferTo(file).subscribe();
+                        String fileName = file.getName();
+                        long fileSize = 10;
+                        String contentType = determineContentType(filePath + File.separator + fileName);
+                        CVFile c = new CVFile();
+                        c.setParentId(parentId);
+                        c.setFileName(fileName);
+                        c.setDescription(fileName);
+                        c.setFileSize(fileSize);
+                        c.setFileType(CVFileUtil.FILE);
+                        c.setFileContent(contentType);
+                        c.setFileExtension(CVFileUtil.getFileExtension(filePart));
+                        c.setCreatedBy(createdBy);
+                        c.setCreatedDate(LocalDateTime.now());
+                        c.setDeleted(false);
+                        return save(c);
+                    } catch (IOException e) {
+                        return Mono.error(e);
+                    }
+                });
+    }
+
+    private static String determineContentType(String filename) {
+        Path path = Paths.get(filename);
+        String contentType = null;
+        try {
+            contentType = Files.probeContentType(path);
+        } catch (Exception e) {
+            // Unable to determine content type from file extension
         }
-        return Mono.just("File already exists.");
+        if (contentType == null) {
+            contentType = "application/octet-stream";
+        }
+        return contentType;
     }
 
     @Override

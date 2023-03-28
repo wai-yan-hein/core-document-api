@@ -4,7 +4,9 @@ import core.document.api.common.ReturnObject;
 import core.document.api.common.Util1;
 import core.document.api.entity.CVFile;
 import core.document.api.service.CVFileService;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -13,20 +15,18 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Slf4j
 @RestController
 public class FileController {
 
-    private final CVFileService cvFileService;
-
-    public FileController(CVFileService cvFileService) {
-        this.cvFileService = cvFileService;
-    }
-
+    @Autowired
+    private CVFileService cvFileService;
 
     @GetMapping(path = "/getFileHead")
     public Flux<?> getFileHead() {
@@ -53,12 +53,29 @@ public class FileController {
 
 
     @PostMapping(value = "/createFile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @ResponseStatus(HttpStatus.CREATED)
     public Mono<?> createFile(@RequestParam String createdBy,
                               @RequestParam String parentId,
                               @RequestParam String filePath,
                               @RequestPart Mono<FilePart> parts) {
-        return cvFileService.createFile(createdBy, parentId,filePath, parts);
+        return cvFileService.createFile(createdBy, parentId, filePath, parts);
+    }
+
+    @PostMapping(value = "/createFileLocal", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Mono<?> createFileLocal(@RequestPart FilePart parts) {
+        return saveFile(parts,"data");
+    }
+    public Mono<File> saveFile(FilePart filePart, String filePath) {
+        File file = new File(Paths.get(filePath) + File.separator + filePart.filename());
+        try {
+            Path directory = Paths.get(filePath);
+            if (!Files.exists(directory)) {
+                Files.createDirectories(directory);
+            }
+            filePart.transferTo(file).subscribe();
+            return Mono.just(file);
+        } catch (IOException e) {
+            return Mono.error(e);
+        }
     }
 
     private boolean isValidFileHead(CVFile f, ReturnObject ro) {
